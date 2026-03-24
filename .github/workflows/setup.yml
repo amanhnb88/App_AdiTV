@@ -1,0 +1,48 @@
+name: Auto Setup React Native
+
+on:
+  workflow_dispatch: # Supaya bisa kita jalankan pakai tombol
+
+# Memberi izin robot untuk menyimpan file ke repositori
+permissions:
+  contents: write
+
+jobs:
+  build-structure:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Bikin Kerangka React Native
+        run: |
+          # Bikin proyek baru
+          npx --yes react-native@latest init AdiTVApp
+          
+          # Hapus file App bawaan, ganti dengan app.js milikmu
+          rm AdiTVApp/App.tsx
+          mv app.js AdiTVApp/App.js
+          
+          # Install library video-nya
+          cd AdiTVApp
+          npm install react-native-video
+
+      - name: Rapikan dan Simpan ke GitHub
+        run: |
+          # Pindahkan semua file ke luar agar tidak di dalam folder AdiTVApp
+          shopt -s dotglob
+          mv AdiTVApp/* .
+          rm -rf AdiTVApp
+          rm -rf .git
+          
+          # Simpan ke GitHub
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Auto-generate struktur proyek React Native utuh"
+          git push origin main --force
