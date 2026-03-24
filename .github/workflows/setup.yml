@@ -16,11 +16,11 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22' # <-- Ini kita naikkan ke versi terbaru
+          node-version: '22'
 
       - name: Bikin Kerangka React Native
         run: |
-          # Bikin proyek baru (pakai perintah yang direkomendasikan sistem)
+          # Bikin proyek baru
           npx --yes @react-native-community/cli init AdiTVApp
           
           # Hapus file App bawaan, ganti dengan app.js milikmu
@@ -33,11 +33,13 @@ jobs:
 
       - name: Rapikan dan Simpan ke GitHub
         run: |
+          # FIX ERROR: Hapus folder .git bawaan agar tidak bertabrakan!
+          rm -rf AdiTVApp/.git
+          
           # Pindahkan semua file ke luar agar tidak di dalam folder AdiTVApp
           shopt -s dotglob
           mv AdiTVApp/* .
           rm -rf AdiTVApp
-          rm -rf .git
           
           # Simpan ke GitHub
           git config --global user.name "github-actions[bot]"
