@@ -12,16 +12,15 @@ import {
   TouchableWithoutFeedback,
   Animated,
   ScrollView,
-  useWindowDimensions // Tambahan hook dari React Native
+  useWindowDimensions
 } from 'react-native';
 import Video from 'react-native-video';
 
 const M3U_URL = 'https://raw.githubusercontent.com/amanhnb88/AdiTV/main/streams/playlist_super.m3u';
 
 export default function App() {
-  // Gunakan hook ini agar isTV otomatis update saat HP diputar (portrait/landscape)
   const { width, height } = useWindowDimensions();
-  const isTV = width > height; 
+  const isTV = width > height;
 
   const [channels, setChannels] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -30,6 +29,10 @@ export default function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // State untuk Remote TV Focus
+  const [focusedChannel, setFocusedChannel] = useState(null);
+  const [focusedCategory, setFocusedCategory] = useState(null);
+
   const [showControls, setShowControls] = useState(true);
   const [showZapping, setShowZapping] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -37,7 +40,7 @@ export default function App() {
   const hideControlsTimer = useRef(null);
   const zappingAnim = useRef(new Animated.Value(150)).current;
 
-  // 1. Parser M3U yang Diperbaiki (Aman untuk Multiple URL)
+  // Parser M3U
   const parseM3U = (data) => {
     const lines = data.split('\n');
     const parsedChannels = [];
@@ -45,17 +48,12 @@ export default function App() {
 
     for (let i = 0; i < lines.length; i++) {
       let line = lines[i].trim();
-      
-      // Abaikan baris kosong atau komentar (opsional, tapi lebih aman)
       if (!line || line.startsWith('//')) continue;
 
       if (line.startsWith('#EXTINF')) {
-        // Jika sebelumnya ada channel yang sudah punya URL, simpan dulu!
         if (currentChannel && currentChannel.url) {
           parsedChannels.push({ ...currentChannel });
         }
-        
-        // Mulai objek channel baru
         currentChannel = { id: Math.random().toString(36).substr(2, 9), urls: [] };
         
         const logoMatch = line.match(/tvg-logo="(.*?)"/);
@@ -67,7 +65,6 @@ export default function App() {
         currentChannel.name = nameMatch ? nameMatch.trim() : 'Tanpa Nama';
         
       } else if (currentChannel) {
-        // Membaca Metadata DRM & Jaringan
         if (line.startsWith('#KODIPROP:inputstream.adaptive.license_type=')) {
           currentChannel.licenseType = line.split('=')[1];
         } else if (line.startsWith('#KODIPROP:inputstream.adaptive.license_key=')) {
@@ -77,25 +74,15 @@ export default function App() {
         } else if (line.startsWith('#EXTVLCOPT:http-user-agent=')) {
           currentChannel.userAgent = line.replace('#EXTVLCOPT:http-user-agent=', '');
         } else if (line.startsWith('http')) {
-          // Hanya menyimpan URL pertama sebagai URL utama
-          if (!currentChannel.url) {
-            currentChannel.url = line;
-          }
-          // (Opsional) Kamu bisa menyimpan fallback URL ke currentChannel.urls jika mau
+          if (!currentChannel.url) currentChannel.url = line;
           currentChannel.urls.push(line);
         }
       }
     }
-    
-    // Jangan lupa simpan channel paling terakhir di akhir file!
-    if (currentChannel && currentChannel.url) {
-      parsedChannels.push({ ...currentChannel });
-    }
-    
+    if (currentChannel && currentChannel.url) parsedChannels.push({ ...currentChannel });
     return parsedChannels;
   };
 
-  // 2. Ambil Data
   useEffect(() => {
     const fetchPlaylist = async () => {
       try {
@@ -105,10 +92,8 @@ export default function App() {
         
         const uniqueCategories = [...new Set(data.map((ch) => ch.group))];
         setChannels(data);
-        setCategories(uniqueCategories);
-        if (uniqueCategories.length > 0) {
-          setSelectedCategory(uniqueCategories[0]);
-        }
+        setCategories(['Semua', ...uniqueCategories]);
+        setSelectedCategory('Semua');
       } catch (error) {
         console.error('Gagal memuat M3U:', error);
       } finally {
@@ -118,7 +103,6 @@ export default function App() {
     fetchPlaylist();
   }, []);
 
-  // 3. Handle Back Button
   useEffect(() => {
     const backAction = () => {
       if (isPlaying) {
@@ -132,13 +116,11 @@ export default function App() {
     return () => backHandler.remove();
   }, [isPlaying]);
 
-  // 4. Logika Player Controls
+  // Player Logic
   const startHideTimer = () => {
     if (hideControlsTimer.current) clearTimeout(hideControlsTimer.current);
     if (showControls && !showZapping) {
-      hideControlsTimer.current = setTimeout(() => {
-        setShowControls(false);
-      }, 4000); 
+      hideControlsTimer.current = setTimeout(() => setShowControls(false), 4000); 
     }
   };
 
@@ -159,11 +141,7 @@ export default function App() {
     } else {
       startHideTimer();
     }
-    Animated.timing(zappingAnim, {
-      toValue,
-      duration: 300,
-      useNativeDriver: true,
-    }).start();
+    Animated.timing(zappingAnim, { toValue, duration: 300, useNativeDriver: true }).start();
   };
 
   const playChannel = (channel) => {
@@ -176,10 +154,23 @@ export default function App() {
     startHideTimer();
   };
 
+  // Fungsi Pemilih Ikon Kategori
+  const getCategoryIcon = (cat) => {
+    const lower = cat.toLowerCase();
+    if (lower === 'semua') return '🏠';
+    if (lower.includes('nasional')) return '📡';
+    if (lower.includes('movie')) return '🎬';
+    if (lower.includes('sport')) return '⚽';
+    if (lower.includes('news')) return '📰';
+    if (lower.includes('kid')) return '🧸';
+    if (lower.includes('music')) return '🎵';
+    if (lower.includes('knowledge')) return '🌍';
+    if (lower.includes('religion')) return '🕌';
+    return '📺';
+  };
+
   if (isPlaying && activeChannel) {
     let drmConfig = undefined;
-    
-    // Konfigurasi DRM yang lebih aman
     if (activeChannel.licenseType && activeChannel.licenseKey) {
       drmConfig = {
         type: activeChannel.licenseType === 'com.widevine.alpha' ? 'widevine' : 'clearkey',
@@ -187,27 +178,24 @@ export default function App() {
       };
     }
 
-    const currentCategoryChannels = channels.filter(c => c.group === activeChannel.group);
+    const currentCategoryChannels = selectedCategory === 'Semua' 
+      ? channels 
+      : channels.filter(c => c.group === selectedCategory);
 
     return (
       <View style={styles.playerContainer}>
         <StatusBar hidden={true} />
-        
         <TouchableWithoutFeedback onPress={handleTouchVideo}>
           <View style={styles.videoWrapper}>
             <Video
               source={{
                 uri: activeChannel.url,
-                headers: {
-                  'User-Agent': activeChannel.userAgent || 'ExoPlayer',
-                  'Referer': activeChannel.referrer || '',
-                }
+                headers: { 'User-Agent': activeChannel.userAgent || 'ExoPlayer', 'Referer': activeChannel.referrer || '' }
               }}
-              drm={drmConfig} // DRM Inject
+              drm={drmConfig}
               style={styles.fullScreenVideo}
               resizeMode="contain"
               paused={isPaused}
-              onError={(e) => console.log("Video Error:", e)}
             />
           </View>
         </TouchableWithoutFeedback>
@@ -220,30 +208,19 @@ export default function App() {
               </TouchableOpacity>
               <View style={{ marginLeft: 15, flex: 1 }}>
                 <Text style={styles.playerTitle}>{activeChannel.name}</Text>
-                {drmConfig && (
-                  <Text style={styles.playerDrm}>🔑 {drmConfig.type.toUpperCase()}</Text>
-                )}
+                {drmConfig && <Text style={styles.playerDrm}>🔑 {drmConfig.type.toUpperCase()}</Text>}
               </View>
             </View>
-
             <View style={styles.centerControls} pointerEvents="box-none">
-               <TouchableOpacity 
-                 style={styles.playPauseBtn} 
-                 onPress={() => { setIsPaused(!isPaused); startHideTimer(); }}
-               >
+               <TouchableOpacity style={styles.playPauseBtn} onPress={() => { setIsPaused(!isPaused); startHideTimer(); }}>
                  <Text style={{ fontSize: 30, color: '#fff' }}>{isPaused ? '▶' : '⏸'}</Text>
                </TouchableOpacity>
             </View>
-
             <View style={styles.playerFooter}>
               <View style={styles.liveIndicator}>
                 <View style={styles.liveDot} />
                 <Text style={styles.liveText}>LIVE</Text>
               </View>
-              <View style={styles.progressBar}>
-                <View style={styles.progressFill} />
-              </View>
-              
               <TouchableOpacity style={styles.zappingBtn} onPress={toggleZapping}>
                 <Text style={styles.zappingText}>📑 Daftar Channel</Text>
               </TouchableOpacity>
@@ -276,38 +253,48 @@ export default function App() {
     return (
       <View style={styles.loadingContainer}>
         <StatusBar hidden={true} />
-        <ActivityIndicator size="large" color="#00E676" />
+        <ActivityIndicator size="large" color="#E50914" />
         <Text style={styles.loadingText}>Memuat AdiTV...</Text>
       </View>
     );
   }
 
-  const filteredChannels = channels.filter(ch => ch.group === selectedCategory);
+  const filteredChannels = selectedCategory === 'Semua' ? channels : channels.filter(ch => ch.group === selectedCategory);
 
   return (
     <View style={[styles.container, { flexDirection: isTV ? 'row' : 'column' }]}>
-      <StatusBar hidden={isTV} backgroundColor="#0F172A" barStyle="light-content" />
+      <StatusBar hidden={isTV} backgroundColor="#0B0C10" barStyle="light-content" />
       
+      {/* SIDEBAR GAYA MODERN */}
       {isTV ? (
         <View style={styles.sidebar}>
-          <Text style={styles.appTitleTV}>AdiTV</Text>
+          <Text style={styles.appTitleTV}>Adi<Text style={{color:'#fff'}}>TV</Text></Text>
           <FlatList
             data={categories}
             keyExtractor={(item, index) => index.toString()}
+            showsVerticalScrollIndicator={false}
             renderItem={({ item }) => (
               <TouchableOpacity
-                onFocus={() => setSelectedCategory(item)}
+                onFocus={() => { setFocusedCategory(item); setSelectedCategory(item); }}
+                onBlur={() => setFocusedCategory(null)}
                 onPress={() => setSelectedCategory(item)}
-                style={[styles.categoryItemTV, selectedCategory === item && styles.categoryItemActiveTV]}
+                style={[
+                  styles.categoryItemTV, 
+                  selectedCategory === item && styles.categoryItemActiveTV,
+                  focusedCategory === item && styles.categoryItemFocused
+                ]}
               >
-                <Text style={[styles.categoryTextTV, selectedCategory === item && { color: '#fff' }]}>{item}</Text>
+                <Text style={styles.categoryIcon}>{getCategoryIcon(item)}</Text>
+                <Text style={[styles.categoryTextTV, selectedCategory === item && { color: '#FFF', fontWeight: 'bold' }]}>
+                  {item}
+                </Text>
               </TouchableOpacity>
             )}
           />
         </View>
       ) : (
         <View style={styles.mobileHeader}>
-          <Text style={styles.appTitleMobile}>AdiTV</Text>
+          <Text style={styles.appTitleMobile}>Adi<Text style={{color:'#fff'}}>TV</Text></Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.mobileCategoryScroll}>
             {categories.map((cat, index) => (
               <TouchableOpacity 
@@ -315,31 +302,41 @@ export default function App() {
                 style={[styles.categoryPill, selectedCategory === cat && styles.categoryPillActive]}
                 onPress={() => setSelectedCategory(cat)}
               >
-                <Text style={[styles.categoryPillText, selectedCategory === cat && { color: '#000' }]}>{cat}</Text>
+                <Text style={styles.categoryPillIcon}>{getCategoryIcon(cat)}</Text>
+                <Text style={[styles.categoryPillText, selectedCategory === cat && { color: '#FFF' }]}>{cat}</Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
         </View>
       )}
 
+      {/* GRID CHANNEL GAYA NETFLIX/DISNEY+ */}
       <View style={styles.mainContent}>
-        {isTV && <Text style={styles.categoryTitle}>{selectedCategory}</Text>}
+        {isTV && <Text style={styles.headerTitle}>{selectedCategory}</Text>}
         
         <FlatList
           data={filteredChannels}
           keyExtractor={(item) => item.id}
           key={isTV ? 'TV_GRID' : 'MOBILE_GRID'} 
-          numColumns={isTV ? 4 : 2}
+          numColumns={isTV ? 5 : 2}
           columnWrapperStyle={styles.rowWrapper}
+          showsVerticalScrollIndicator={false}
           renderItem={({ item }) => (
             <TouchableOpacity
               onPress={() => playChannel(item)}
-              style={isTV ? styles.channelItemTV : styles.channelItemMobile}
+              onFocus={() => setFocusedChannel(item.id)}
+              onBlur={() => setFocusedChannel(null)}
+              style={[
+                isTV ? styles.channelCardTV : styles.channelCardMobile,
+                focusedChannel === item.id && styles.channelCardFocused
+              ]}
             >
-              <View style={styles.logoBox}>
-                <Text style={styles.logoText}>{item.logo ? item.name.charAt(0) : '📺'}</Text>
+              <View style={styles.cardImagePlaceholder}>
+                <Text style={styles.cardImageText}>{item.logo ? item.name.charAt(0) : '📺'}</Text>
               </View>
-              <Text style={styles.channelName} numberOfLines={2}>{item.name}</Text>
+              <View style={styles.cardLabel}>
+                <Text style={styles.channelName} numberOfLines={1}>{item.name}</Text>
+              </View>
             </TouchableOpacity>
           )}
         />
@@ -348,52 +345,65 @@ export default function App() {
   );
 }
 
-// ... [Pertahankan StyleSheet persis seperti milikmu sebelumnya] ...
+// STYLESHEET TEMA DEEP DARK (MODERN TV)
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0F172A' },
-  loadingContainer: { flex: 1, backgroundColor: '#0F172A', justifyContent: 'center', alignItems: 'center' },
-  loadingText: { color: '#fff', marginTop: 15, fontSize: 18 },
-  sidebar: { width: '25%', backgroundColor: '#1E293B', padding: 15 },
-  appTitleTV: { color: '#00E676', fontSize: 32, fontWeight: 'bold', marginBottom: 20, textAlign: 'center' },
-  categoryItemTV: { padding: 15, borderRadius: 8, marginBottom: 5 },
-  categoryItemActiveTV: { backgroundColor: '#334155' },
-  categoryTextTV: { color: '#94A3B8', fontSize: 18, fontWeight: '600' },
-  channelItemTV: { flex: 1, margin: 10, padding: 15, backgroundColor: '#1E293B', borderRadius: 12, alignItems: 'center', aspectRatio: 1 },
-  categoryTitle: { color: '#FFF', fontSize: 24, fontWeight: 'bold', marginBottom: 15, marginLeft: 10 },
-  mobileHeader: { paddingTop: Platform.OS === 'ios' ? 40 : 10, paddingBottom: 10, backgroundColor: '#1E293B' },
-  appTitleMobile: { color: '#00E676', fontSize: 24, fontWeight: 'bold', paddingHorizontal: 20, marginBottom: 10 },
-  mobileCategoryScroll: { paddingHorizontal: 15, paddingBottom: 5 },
-  categoryPill: { paddingHorizontal: 16, paddingVertical: 8, backgroundColor: '#0F172A', borderRadius: 20, marginRight: 10 },
-  categoryPillActive: { backgroundColor: '#00E676' },
-  categoryPillText: { color: '#94A3B8', fontWeight: 'bold', fontSize: 14 },
-  channelItemMobile: { flex: 1, margin: 8, padding: 15, backgroundColor: '#1E293B', borderRadius: 16, alignItems: 'center' },
-  mainContent: { flex: 1, padding: 10 },
+  container: { flex: 1, backgroundColor: '#0B0C10' }, // Warna latar belakang sangat gelap
+  loadingContainer: { flex: 1, backgroundColor: '#0B0C10', justifyContent: 'center', alignItems: 'center' },
+  loadingText: { color: '#fff', marginTop: 15, fontSize: 18, fontWeight: 'bold' },
+  
+  // -- UI TV --
+  sidebar: { width: 220, backgroundColor: '#12141A', paddingVertical: 20, paddingHorizontal: 15, borderRightWidth: 1, borderRightColor: '#1F222A' },
+  appTitleTV: { color: '#E50914', fontSize: 34, fontWeight: '900', marginBottom: 30, paddingHorizontal: 10, letterSpacing: 1 },
+  categoryItemTV: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 15, borderRadius: 10, marginBottom: 8 },
+  categoryItemActiveTV: { backgroundColor: '#1F222A' },
+  categoryItemFocused: { borderWidth: 2, borderColor: '#FFF', backgroundColor: '#2A2D35' }, // Efek saat dipilih remot
+  categoryIcon: { fontSize: 20, marginRight: 15 },
+  categoryTextTV: { color: '#8A8D93', fontSize: 16, fontWeight: '600' },
+  
+  headerTitle: { color: '#FFF', fontSize: 28, fontWeight: 'bold', marginBottom: 20, marginTop: 10, marginLeft: 10 },
+  
+  channelCardTV: { flex: 1, margin: 8, backgroundColor: '#181A20', borderRadius: 12, overflow: 'hidden', aspectRatio: 16/11, borderWidth: 2, borderColor: 'transparent' },
+  channelCardFocused: { borderColor: '#FFF', transform: [{ scale: 1.05 }], zIndex: 10 }, // Zoom membesar saat difokus remot
+  
+  // -- UI Mobile --
+  mobileHeader: { paddingTop: Platform.OS === 'ios' ? 40 : 15, paddingBottom: 10, backgroundColor: '#12141A' },
+  appTitleMobile: { color: '#E50914', fontSize: 28, fontWeight: '900', paddingHorizontal: 20, marginBottom: 15 },
+  mobileCategoryScroll: { paddingHorizontal: 15, paddingBottom: 10 },
+  categoryPill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, backgroundColor: '#1F222A', borderRadius: 25, marginRight: 10 },
+  categoryPillActive: { backgroundColor: '#E50914' },
+  categoryPillIcon: { fontSize: 16, marginRight: 6 },
+  categoryPillText: { color: '#8A8D93', fontWeight: 'bold', fontSize: 14 },
+  channelCardMobile: { flex: 1, margin: 8, backgroundColor: '#181A20', borderRadius: 12, overflow: 'hidden', aspectRatio: 1 },
+
+  // -- Card Content --
+  mainContent: { flex: 1, padding: isTV ? 20 : 10 },
   rowWrapper: { justifyContent: 'flex-start' },
-  logoBox: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#334155', justifyContent: 'center', alignItems: 'center', marginBottom: 10 },
-  logoText: { color: '#fff', fontSize: 24, fontWeight: 'bold' },
-  channelName: { color: '#fff', fontSize: 14, textAlign: 'center', fontWeight: '500' },
+  cardImagePlaceholder: { flex: 1, backgroundColor: '#1F222A', justifyContent: 'center', alignItems: 'center' },
+  cardImageText: { color: '#FFF', fontSize: 40, fontWeight: 'bold', opacity: 0.5 },
+  cardLabel: { padding: 12, backgroundColor: '#181A20', borderTopWidth: 1, borderTopColor: '#2A2D35' },
+  channelName: { color: '#E0E0E0', fontSize: 14, textAlign: 'center', fontWeight: 'bold' },
+
+  // -- UI Player --
   playerContainer: { flex: 1, backgroundColor: '#000' },
   videoWrapper: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   fullScreenVideo: { position: 'absolute', top: 0, left: 0, bottom: 0, right: 0 },
   controlsOverlay: { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', justifyContent: 'space-between' },
-  playerHeader: { flexDirection: 'row', alignItems: 'center', padding: 20, backgroundColor: 'rgba(0,0,0,0.6)' },
-  iconBtn: { width: 40, height: 40, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
-  iconText: { color: '#fff', fontSize: 20, fontWeight: 'bold' },
-  playerTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
-  playerDrm: { color: '#00E676', fontSize: 12, marginTop: 2 },
+  playerHeader: { flexDirection: 'row', alignItems: 'center', padding: 20, backgroundColor: 'rgba(0,0,0,0.7)' },
+  iconBtn: { width: 45, height: 45, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 25, justifyContent: 'center', alignItems: 'center' },
+  iconText: { color: '#fff', fontSize: 22, fontWeight: 'bold' },
+  playerTitle: { color: '#fff', fontSize: 20, fontWeight: 'bold' },
+  playerDrm: { color: '#E50914', fontSize: 12, marginTop: 4, fontWeight: 'bold' },
   centerControls: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  playPauseBtn: { width: 70, height: 70, backgroundColor: 'rgba(0, 230, 118, 0.7)', borderRadius: 35, justifyContent: 'center', alignItems: 'center' },
-  playerFooter: { flexDirection: 'row', alignItems: 'center', padding: 20, backgroundColor: 'rgba(0,0,0,0.6)' },
-  liveIndicator: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#e11d48', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, marginRight: 15 },
-  liveDot: { width: 6, height: 6, backgroundColor: '#fff', borderRadius: 3, marginRight: 5 },
-  liveText: { color: '#fff', fontSize: 12, fontWeight: 'bold' },
-  progressBar: { flex: 1, height: 4, backgroundColor: 'rgba(255,255,255,0.3)', borderRadius: 2, marginRight: 15 },
-  progressFill: { width: '100%', height: '100%', backgroundColor: '#e11d48', borderRadius: 2 },
-  zappingBtn: { backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20 },
-  zappingText: { color: '#fff', fontSize: 14 },
-  zappingSlider: { position: 'absolute', bottom: 0, left: 0, width: '100%', height: 120, backgroundColor: 'rgba(15, 23, 42, 0.95)', paddingVertical: 20, paddingHorizontal: 10 },
-  miniChannel: { width: 100, height: 80, backgroundColor: '#1E293B', borderRadius: 8, justifyContent: 'center', alignItems: 'center', marginRight: 10, borderWidth: 2, borderColor: 'transparent' },
-  miniChannelActive: { borderColor: '#00E676', backgroundColor: '#334155' },
-  miniChannelLogo: { fontSize: 24, color: '#94A3B8', marginBottom: 5 },
-  miniChannelName: { color: '#fff', fontSize: 12, textAlign: 'center', paddingHorizontal: 5 }
+  playPauseBtn: { width: 80, height: 80, backgroundColor: 'rgba(229, 9, 20, 0.8)', borderRadius: 40, justifyContent: 'center', alignItems: 'center' },
+  playerFooter: { flexDirection: 'row', alignItems: 'center', padding: 20, backgroundColor: 'rgba(0,0,0,0.7)' },
+  liveIndicator: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#E50914', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, marginRight: 15 },
+  liveDot: { width: 8, height: 8, backgroundColor: '#fff', borderRadius: 4, marginRight: 6 },
+  liveText: { color: '#fff', fontSize: 13, fontWeight: 'bold', letterSpacing: 1 },
+  zappingBtn: { backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 18, paddingVertical: 10, borderRadius: 25 },
+  zappingText: { color: '#fff', fontSize: 15, fontWeight: 'bold' },
+  zappingSlider: { position: 'absolute', bottom: 0, left: 0, width: '100%', height: 130, backgroundColor: 'rgba(11, 12, 16, 0.95)', paddingVertical: 20, paddingHorizontal: 10, borderTopWidth: 1, borderTopColor: '#1F222A' },
+  miniChannel: { width: 110, height: 85, backgroundColor: '#181A20', borderRadius: 10, justifyContent: 'center', alignItems: 'center', marginRight: 12, borderWidth: 2, borderColor: '#1F222A' },
+  miniChannelActive: { borderColor: '#E50914', backgroundColor: '#1F222A' },
+  miniChannelLogo: { fontSize: 28, color: '#8A8D93', marginBottom: 5 },
+  miniChannelName: { color: '#fff', fontSize: 13, textAlign: 'center', paddingHorizontal: 5, fontWeight: 'bold' }
 });
