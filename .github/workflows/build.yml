@@ -1,0 +1,52 @@
+name: Build Android APK AdiTV
+
+# Kapan robot ini akan bekerja?
+on:
+  push:
+    branches:
+      - main # Akan otomatis build setiap ada kode baru di branch main
+  workflow_dispatch: # Memungkinkanmu menekan tombol "Run workflow" secara manual
+
+jobs:
+  build-android:
+    name: Build APK file
+    runs-on: ubuntu-latest # Menggunakan komputer virtual Ubuntu versi terbaru
+
+    steps:
+      # Langkah 1: Mengambil kode dari repositori GitHub-mu
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      # Langkah 2: Menyiapkan Node.js untuk mengeksekusi JavaScript
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18' # Versi Node.js standar untuk React Native saat ini
+
+      # Langkah 3: Menginstal semua library yang ada di package.json
+      - name: Install Dependencies
+        run: npm install
+
+      # Langkah 4: Menyiapkan Java Development Kit (JDK) untuk Android
+      - name: Setup Java (JDK 17)
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'zulu'
+          java-version: '17' # React Native terbaru biasanya butuh Java 17
+
+      # Langkah 5: Memberikan izin agar skrip Gradle (perakit Android) bisa dijalankan
+      - name: Make Gradle executable
+        run: chmod +x android/gradlew
+
+      # Langkah 6: Proses merakit aplikasi menjadi file APK (Release mode)
+      - name: Build APK (Release)
+        run: |
+          cd android
+          ./gradlew assembleRelease
+
+      # Langkah 7: Mengunggah hasil APK ke GitHub agar bisa kamu download
+      - name: Upload APK
+        uses: actions/upload-artifact@v3
+        with:
+          name: AdiTV-App-Release # Nama folder saat kamu download nanti
+          path: android/app/build/outputs/apk/release/app-release.apk
