@@ -1,9 +1,8 @@
 name: Auto Setup React Native
 
 on:
-  workflow_dispatch: # Supaya bisa kita jalankan pakai tombol
+  workflow_dispatch:
 
-# Memberi izin robot untuk menyimpan file ke repositori
 permissions:
   contents: write
 
@@ -17,12 +16,12 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '22' # <-- Ini kita naikkan ke versi terbaru
 
       - name: Bikin Kerangka React Native
         run: |
-          # Bikin proyek baru
-          npx --yes react-native@latest init AdiTVApp
+          # Bikin proyek baru (pakai perintah yang direkomendasikan sistem)
+          npx --yes @react-native-community/cli init AdiTVApp
           
           # Hapus file App bawaan, ganti dengan app.js milikmu
           rm AdiTVApp/App.tsx
